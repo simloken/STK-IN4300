@@ -1,10 +1,12 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import cross_val_score, LeaveOneOut, train_test_split
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, BaggingClassifier, VotingClassifier
-import matplotlib.pyplot as plt
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 from pygam import LogisticGAM
 
 
@@ -43,7 +45,7 @@ y = df['diabetes']
 def task1(X, y):
     print('\nTask 1\n')
     
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1/3, random_state=50)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1/3, random_state=50, stratify=y)
     
     cvs = []
     loos = []
@@ -51,17 +53,19 @@ def task1(X, y):
     k = 150
     
     for i in range(k):
-        knn = KNeighborsClassifier(n_neighbors=i+1)
+        knn = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=i+1))
         knn.fit(X_train, y_train)
-        cv = cross_val_score(knn, X_test, y_test, cv=5, scoring='neg_mean_absolute_error', n_jobs=-1)
-        loo = cross_val_score(knn, X_test, y_test, cv=LeaveOneOut(), scoring='neg_mean_absolute_error', n_jobs=-1)
-        cvs.append(np.mean(np.abs(cv)))
-        loos.append(np.mean(np.abs(loo)))
+        knn2 = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=i+1))
+        cv = cross_val_score(knn2, X, y, cv=5, scoring='accuracy', n_jobs=-1)
+        loo = cross_val_score(knn2, X, y, cv=LeaveOneOut(), scoring='accuracy', n_jobs=-1)
+        cvs.append(np.mean(cv))
+        loos.append(np.mean(loo))
         y_pred = list(knn.predict(X_test))
-        sm = 0
+        acc = 0
         for j in range(len(y_pred)):
-            sm += np.abs(list(y_test)[j] - y_pred[j])
-        non.append(sm/j)
+            if list(y_test)[j] == y_pred[j]:
+                acc += 1
+        non.append(acc/j)
     
     x = np.arange(1, k+1, 1, dtype=np.int64)
     plt.figure(figsize=(8,6))
@@ -70,7 +74,7 @@ def task1(X, y):
     plt.plot(x, non) 
     plt.legend(['5-fold CV', 'LOOCV', 'k-NN'])
     plt.xlabel('k')
-    plt.ylabel('Mean Absolute Error')
+    plt.ylabel('Accuracy')
     plt.xticks(ticks=plt.xticks()[0], labels=plt.xticks()[0].astype(int))
     plt.xlim(0, k+1)
     plt.title('Test error of k-NN, with 5-fold CV, LOOCV and without for all k')
@@ -81,7 +85,7 @@ def task1(X, y):
 def task2(X, y):
     print('\nTask 2\n')
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1/3, random_state=50)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1/3, random_state=50, stratify=y)
     
     gam = LogisticGAM(n_splines=8).gridsearch(X_train.values, y_train)
     
@@ -105,7 +109,7 @@ def task2(X, y):
 def task3(X, y):
     print('\nTask 3\n')
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1/3, random_state=50)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1/3, random_state=50, stratify=y)
     
     tree = DecisionTreeClassifier().fit(X_train, y_train)
     print('Decision Tree:\n')

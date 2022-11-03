@@ -5,7 +5,7 @@ from sklearn.linear_model import LinearRegression, Lasso, LassoLarsIC, Ridge
 from sklearn.ensemble import BaggingRegressor
 from sklearn.feature_selection import SequentialFeatureSelector
 import matplotlib.pyplot as plt
-from sklearn.pipeline import make_pipeline
+from sklearn.pipeline import make_pipeline, Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeRegressor
 from sklearn import tree
@@ -43,8 +43,12 @@ def task1(df, ddf, ret=False):
                                                                     'GATS1p', 'nN', 'C040']], ddf['LC50'],
                                                             test_size=1/3, random_state=50)
     
-    reg = make_pipeline(StandardScaler(), LinearRegression()).fit(X=X_train, y=y_train)
-    dreg = make_pipeline(StandardScaler(), LinearRegression()).fit(X=dX_train, y=dy_train)
+    reg = Pipeline([('scl',StandardScaler()),('lreg',LinearRegression())]).fit(X=X_train, y=y_train)
+    dreg = Pipeline([('scl',StandardScaler()),('lreg',LinearRegression())]).fit(X=dX_train, y=dy_train)
+    
+    print(f'Normal Coefficients: {reg["lreg"].coef_}')
+    print(f'Dichotomized Coefficients: {dreg["lreg"].coef_}')
+    print(f'Ratio: {reg["lreg"].coef_/dreg["lreg"].coef_}')
     
     pred = reg.predict(X_test)
     dpred = dreg.predict(dX_test)
@@ -72,8 +76,8 @@ def task1(df, ddf, ret=False):
     plt.ylabel('Predicted LC50')
     plt.show()
     
-    print('Normal MSE: %f' %(sm))
-    print('Dichotomized MSE: %f' %(dsm))
+    print('Normal MAE: %f' %(sm))
+    print('Dichotomized MAE: %f' %(dsm))
     
     if ret == True:
         toreturn = []
@@ -133,8 +137,8 @@ def task2(df, ddf):
     plt.plot([0.1, 0.5], [np.average(dlossList)]*2, color='dodgerblue', linestyle='-.')
     plt.legend(['Normal', 'Dichotomized', 'Avg. Normal', 'Avg. Dichotomized'])
     plt.xlabel('Test Size')
-    plt.ylabel('Mean Squared Error')
-    plt.title('Mean Squared Error for different test sizes using Linear Regression')
+    plt.ylabel('Mean Absolute Error')
+    plt.title('Mean Absolute Error for different test sizes using Linear Regression')
     plt.show()
 
 
@@ -148,11 +152,11 @@ def task3(df, ret=False):
                                                                 'GATS1p', 'nN', 'C040']], df['LC50'],
                                                         test_size=1/3, random_state=50)
     feature_names = np.array(X.columns)
-    las = make_pipeline(StandardScaler(), Lasso())
+    las = make_pipeline(StandardScaler(), Lasso(alpha=0.05))
     lasAIC = make_pipeline(StandardScaler(), LassoLarsIC(criterion='aic')).fit(X_train, y_train)
     lasBIC = make_pipeline(StandardScaler(), LassoLarsIC(criterion='bic')).fit(X_train, y_train)
-    las_f = SequentialFeatureSelector(las, direction='forward', cv=5).fit(X, y)
-    las_b = SequentialFeatureSelector(las, direction='backward', cv=5).fit(X, y)
+    las_f = SequentialFeatureSelector(las, direction='forward', cv=5, scoring='neg_mean_absolute_error').fit(X, y)
+    las_b = SequentialFeatureSelector(las, direction='backward', cv=5, scoring='neg_mean_absolute_error').fit(X, y)
 
     print('R2-score with AIC criteria: %f' %(lasAIC.score(X_test, y_test)))
     print('R2-score with BIC criteria: %f' %(lasBIC.score(X_test, y_test)))
@@ -164,7 +168,19 @@ def task3(df, ret=False):
     print('\nSelected features from backward selection are:')
     for i in list(feature_names[las_b.get_support()]):
         print(i)
-        
+
+    XfTrain = X_train[list(feature_names[las_f.get_support()])]
+    XfTest = X_test[list(feature_names[las_f.get_support()])]
+    XbTrain = X_train[list(feature_names[las_b.get_support()])]
+    XbTest = X_test[list(feature_names[las_b.get_support()])]
+    
+    
+    fullF = las.fit(XfTrain, y_train)
+    fullB = las.fit(XbTrain, y_train)
+    
+    print('R2-score with forward selection: %f' %(fullF.score(XfTest, y_test)))
+    print('R2-score with backward selection: %f' %(fullB.score(XbTest, y_test)))
+    
         
     if ret == True:
         toreturn = []
@@ -188,7 +204,33 @@ def task3(df, ret=False):
         toreturn.append(aicsm/i)
         toreturn.append(bicsm/i)
         
+        
+        forwardPred = fullF.predict(XfTest)
+        backwardPred = fullB.predict(XbTest)
+        aicsm = 0
+        bicsm = 0
+        for i in range(len(forwardPred)):
+            aicsm += np.abs(list(y_test)[j] - forwardPred[j])
+            bicsm += np.abs(list(y_test)[j] - backwardPred[j])
+            
+        toreturn.append(aicsm/i)
+        toreturn.append(bicsm/i)
+        
+        forwardPred = fullF.predict(XfTrain)
+        backwardPred = fullB.predict(XbTrain)
+        aicsm = 0
+        bicsm = 0
+        for i in range(len(forwardPred)):
+            aicsm += np.abs(list(y_train)[j] - forwardPred[j])
+            bicsm += np.abs(list(y_train)[j] - backwardPred[j])
+            
+            
+        toreturn.append(aicsm/i)
+        toreturn.append(bicsm/i)
+        
         return toreturn
+    
+    
 #---TASK 4---
 def task4(df, ret=False):
     print('\nTask 4\n')
@@ -200,12 +242,16 @@ def task4(df, ret=False):
     alphas = np.linspace(0.1, 12, 300)
     bags = []
     cvs = []
+    store = 1000
     for i in alphas:
         pipe = make_pipeline(StandardScaler(), Ridge(alpha = i))
         bag = BaggingRegressor(pipe, bootstrap=True).fit(X_train, y_train)
         bags.append(bag.score(X_test, y_test))
-        cv = cross_validate(pipe, X, y, cv=7, return_train_score=True)
+        cv = cross_validate(pipe, X, y, cv=7)
         cvs.append(np.mean(cv['test_score']))
+        if np.mean(cv['test_score']) < store:
+            bestAlpha = i
+            store = i
     
     plt.figure()
     plt.plot(alphas, bags)
@@ -213,11 +259,15 @@ def task4(df, ret=False):
     plt.xlabel('alpha')
     plt.ylabel('Test score')
     plt.legend(['Bootstrap', 'CV'])
-    plt.title('Test error with alpha selection with bootstrap and CV respectively')
+    plt.title('Test score for alpha selection with bootstrap and CV respectively')
+    plt.text(0, .402, 'Best alpha: %g' %(bestAlpha))
     plt.show()
     
     
     if ret==True:
+        pipe = make_pipeline(StandardScaler(), Ridge(alpha = bestAlpha))
+        bag = BaggingRegressor(pipe, bootstrap=True).fit(X_train, y_train)
+        cv = cross_validate(pipe, X, y, cv=7, return_train_score=True, scoring='neg_mean_absolute_error')
         toreturn = []
         bagtest = bag.predict(X_test)
         bagtrain = bag.predict(X_train)
@@ -225,12 +275,14 @@ def task4(df, ret=False):
         for j in range(len(bagtest)):
             sm += np.abs(list(y_test)[j] - bagtest[j])
         toreturn.append(sm/j)
+        
         sm = 0
         for j in range(len(bagtrain)):
-            sm += np.abs(list(y)[j] - bagtrain[j])
+            sm += np.abs(list(y_train)[j] - bagtrain[j])
         toreturn.append(sm/j)
-        toreturn.append(np.mean(cv['test_score']))
-        toreturn.append(np.mean(cv['train_score']))
+        
+        toreturn.append(-np.mean(cv['test_score']))
+        toreturn.append(-np.mean(cv['train_score']))
         return toreturn
 
 #---TASK 5---
@@ -252,7 +304,7 @@ def task5(df, ret=False):
             sm += np.abs(list(df['LC50'])[j] - pred[j])
         
         sm = sm/j
-        print('MSE: %f with %s spline' %(sm, str(list(i.columns))))
+        print('MAE: %f with %s spline' %(sm, str(list(i.columns))))
         if ret==True:
             if sm < store:
                 store = sm
@@ -334,11 +386,11 @@ def task1to6(df, ddf):
 def task7(df, ddf):
     compare = {} #dict to store all returned values in. The key corresponding to the task contains a list with associated test/train errors as follows:
     compare['1'] = task1(df, ddf, ret=True) #test error, dichotomized test error, train error, dichotomized train error
-    compare['3'] = task3(df, ret=True) #AIC test error, BIC test error, AIC train error, BIC train error
+    compare['3'] = task3(df, ret=True) #AIC test error, BIC test error, AIC train error, BIC train error, forward test error, backward test error,las forward train error, backward train error
     compare['4'] = task4(df, ret=True) #bootstrap test error, bootstrap train error, cv test error, cv train error
     compare['5'] = task5(df, ret=True) #best test error
     compare['6'] = task6(df, ret=True) #tree test error, tree train error
     
     return compare
 
-
+compareDict = task7(df, ddf)
